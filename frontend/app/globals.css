@@ -549,7 +549,7 @@ body {
 }
 
 .badge--danger { background: #fef2f2; color: #dc2626; border-color: #fecaca; }
-.badge--new { background: #eff6ff; color: #2563eb; border-color: #bfdbfe; }
+.badge--to_be_checked { background: #f8fafc; color: #475569; border-color: #cbd5e1; }
 .badge--not_yet_paid { background: #fffbeb; color: #d97706; border-color: #fde68a; }
 .badge--checked { background: #f0fdf4; color: #16a34a; border-color: #bbf7d0; }
 

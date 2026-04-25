@@ -41,9 +41,14 @@ async def screen_invoice(file: UploadFile = File(...)) -> Dict[str, Any]:
     pdf_bytes = await file.read()
 
     security = run_security_check(pdf_bytes)
+
+    # Stage 1 result:
+    #   security.match == False + status "danger"  → XML vs visual mismatch → fraud signal
+    #   security.status == "error"                 → extraction failed → needs manual review
     if security.status != "ok" or not security.match:
+        out_status = "danger" if security.status == "danger" else "to_be_checked"
         return {
-            "status": "danger" if security.status == "danger" else "error",
+            "status": out_status,
             "stage": "security",
             "security": {
                 "status": security.status,
@@ -52,8 +57,16 @@ async def screen_invoice(file: UploadFile = File(...)) -> Dict[str, Any]:
             },
         }
 
+    # Stage 2 — reconciliation against ERP purchase orders
     reconciliation = reconcile_with_erp(security.facturx or {})
-    final_status = "checked" if reconciliation.get("decision") == "already_paid" else "to_be_checked"
+    decision = reconciliation.get("decision", "")
+
+    if decision == "already_paid":
+        final_status = "checked"       # invoice verified and already settled
+    elif decision == "not_yet_paid":
+        final_status = "not_yet_paid"  # valid invoice, payment still outstanding
+    else:
+        final_status = "to_be_checked" # needs_review or ambiguous → manual review
 
     try:
         persist = store_invoice(

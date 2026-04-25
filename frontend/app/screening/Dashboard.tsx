@@ -6,7 +6,7 @@ import DragDropZone from "../components/DragDropZone";
 // ─────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────
-type InvoiceStatus = "new" | "danger" | "not_yet_paid" | "checked";
+type InvoiceStatus = "to_be_checked" | "danger" | "not_yet_paid" | "checked";
 type FilterType = "all" | InvoiceStatus;
 type AuditTag = "INGEST" | "EXTRACT" | "MATCH" | "FLAG" | "DECISION";
 type StepVariant = "default" | "success" | "warning" | "danger";
@@ -54,7 +54,7 @@ const DEMO: Invoice[] = [
   },
   {
     id: "INV-2047", subId: "HX-Q2-1142", vendor: "Helix Cloud Services", vendorInitials: "HC",
-    vendorColor: "#8b5cf6", receivedDate: "Apr 24", status: "new",
+    vendorColor: "#8b5cf6", receivedDate: "Apr 24", status: "to_be_checked",
     amount: "$12,480.00", currency: "USD 2025", dueDate: "May 14", confidence: 94,
     auditSteps: [
       { id: "s1", title: "Document ingested", description: "Parsed PDF for INV-2047 · 2 pages · OCR confidence 98.7%", timestamp: "14:01:44", durationMs: 380, tag: "INGEST", variant: "default" },
@@ -114,7 +114,7 @@ const DEMO: Invoice[] = [
   },
   {
     id: "INV-2042", subId: "QO-7782", vendor: "Quantum Office Supply", vendorInitials: "QO",
-    vendorColor: "#7c3aed", receivedDate: "Apr 21", status: "new",
+    vendorColor: "#7c3aed", receivedDate: "Apr 21", status: "to_be_checked",
     amount: "$1,240.40", currency: "USD 2025", dueDate: "May 16", confidence: 91,
     auditSteps: [
       { id: "s1", title: "Document ingested", description: "Parsed PDF for INV-2042 · 1 page · OCR confidence 98.4%", timestamp: "16:22:07", durationMs: 285, tag: "INGEST", variant: "default" },
@@ -168,7 +168,7 @@ function confidenceClass(n: number) {
 }
 
 const STATUS_LABELS: Record<InvoiceStatus, string> = {
-  new: "New",
+  to_be_checked: "To Be Checked",
   danger: "Danger",
   not_yet_paid: "Not Yet Paid",
   checked: "Checked",
@@ -427,7 +427,7 @@ function AuditPanel({
 // Main Dashboard
 // ─────────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const [invoices, setInvoices] = useState<Invoice[]>(DEMO);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [selectedId, setSelectedId] = useState<string>("INV-2048");
   const [filter, setFilter] = useState<FilterType>("all");
   const [busy, setBusy] = useState(false);
@@ -524,8 +524,8 @@ export default function Dashboard() {
         const finalStatus: InvoiceStatus =
           data.status === "danger" ? "danger"
           : data.status === "checked" ? "checked"
-          : data.status === "to_be_checked" ? "not_yet_paid"
-          : "new";
+          : data.status === "not_yet_paid" ? "not_yet_paid"
+          : "to_be_checked";
 
         const decisionVariant: StepVariant =
           finalStatus === "danger" ? "danger"
@@ -537,7 +537,7 @@ export default function Dashboard() {
           danger: "Flagged — manual review required",
           checked: "Auto-approved",
           not_yet_paid: "Queued — awaiting payment",
-          new: "Queued for review",
+          to_be_checked: "Queued for review",
         };
 
         pushStep({
@@ -607,7 +607,7 @@ export default function Dashboard() {
 
   const counts = useMemo(() => ({
     all: invoices.length,
-    new: invoices.filter((i) => i.status === "new").length,
+    to_be_checked: invoices.filter((i) => i.status === "to_be_checked").length,
     danger: invoices.filter((i) => i.status === "danger").length,
     not_yet_paid: invoices.filter((i) => i.status === "not_yet_paid").length,
     checked: invoices.filter((i) => i.status === "checked").length,
@@ -688,41 +688,37 @@ export default function Dashboard() {
           <div className="statCard">
             <div className="statCard__top">
               <div className="statCard__icon"><Icon.Dollar /></div>
-              <div className="statCard__trend statCard__trend--up"><Icon.TrendUp /> 4.2%</div>
             </div>
             <div>
-              <p className="statCard__label">Outstanding</p>
-              <div className="statCard__value">$1.24M</div>
+              <p className="statCard__label">Invoices Screened</p>
+              <div className="statCard__value">{counts.all}</div>
             </div>
           </div>
           <div className="statCard">
             <div className="statCard__top">
               <div className="statCard__icon"><Icon.Check /></div>
-              <div className="statCard__trend statCard__trend--up"><Icon.TrendUp /> 12%</div>
             </div>
             <div>
-              <p className="statCard__label">Auto-Approved (30D)</p>
-              <div className="statCard__value">{counts.checked + 281}</div>
+              <p className="statCard__label">Checked</p>
+              <div className="statCard__value">{counts.checked}</div>
             </div>
           </div>
           <div className="statCard">
             <div className="statCard__top">
               <div className="statCard__icon"><Icon.AlertTriangle /></div>
-              <div className="statCard__trend statCard__trend--down"><Icon.TrendDown /> 3.1%</div>
             </div>
             <div>
               <p className="statCard__label">Flagged for Review</p>
-              <div className="statCard__value">{counts.danger + 15}</div>
+              <div className="statCard__value">{counts.danger}</div>
             </div>
           </div>
           <div className="statCard">
             <div className="statCard__top">
               <div className="statCard__icon"><Icon.Clock /></div>
-              <div className="statCard__trend statCard__trend--up"><Icon.TrendUp /> 9%</div>
             </div>
             <div>
-              <p className="statCard__label">Avg. Processing</p>
-              <div className="statCard__value">42s</div>
+              <p className="statCard__label">Not Yet Paid</p>
+              <div className="statCard__value">{counts.not_yet_paid}</div>
             </div>
           </div>
         </div>
@@ -762,7 +758,7 @@ export default function Dashboard() {
               </div>
 
               <div className="filterTabs">
-                {(["all", "new", "danger", "not_yet_paid", "checked"] as const).map((f) => (
+                {(["all", "to_be_checked", "danger", "not_yet_paid", "checked"] as const).map((f) => (
                   <button
                     key={f}
                     className={`filterTab ${filter === f ? "filterTab--active" : ""}`}
@@ -770,7 +766,7 @@ export default function Dashboard() {
                   >
                     {f === "all" ? "All" : STATUS_LABELS[f as InvoiceStatus]}
                     <span className="filterTab__count">
-                      {f === "all" ? counts.all : counts[f as InvoiceStatus]}
+                      {f === "all" ? counts.all : counts[f as keyof typeof counts]}
                     </span>
                   </button>
                 ))}
@@ -787,6 +783,17 @@ export default function Dashboard() {
               </div>
 
               <div>
+                {filtered.length === 0 && (
+                  <div style={{ padding: "32px 20px", textAlign: "center", color: "#94a3b8" }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#475569", marginBottom: 6 }}>
+                      No invoices yet
+                    </div>
+                    <div style={{ fontSize: 13 }}>
+                      Drop a PDF above to run the first screening.
+                    </div>
+                  </div>
+                )}
+
                 {filtered.map((inv) => {
                   const isSelected = selectedId === inv.id;
                   const cf = confidenceClass(inv.confidence);
@@ -817,7 +824,7 @@ export default function Dashboard() {
                       <div>
                         <span className={`badge badge--${inv.status}`}>
                           {inv.status === "danger" && "⚠ "}
-                          {inv.status === "new" && "✦ "}
+                          {inv.status === "to_be_checked" && "○ "}
                           {inv.status === "checked" && "✓ "}
                           {STATUS_LABELS[inv.status]}
                         </span>
