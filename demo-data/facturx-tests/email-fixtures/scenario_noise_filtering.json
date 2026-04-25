@@ -1,0 +1,15 @@
+{
+  "scenario_id": "EMAIL-01-noise-filtering",
+  "description": "Email with mixed attachments: invoice + logo + advertisement",
+  "expected_behavior": {
+    "classification": "invoice_detected",
+    "danger": false,
+    "ignored_attachments": ["Logo.png", "Pub.pdf"],
+    "processed_attachments": ["Facture_TcSec01.pdf"]
+  },
+  "attachments": [
+    {"filename": "Facture_TcSec01.pdf", "mime_type": "application/pdf", "contains_facturx": true, "linked_fixture": "invoices/TC-SEC-01_valid_facturx.xml"},
+    {"filename": "Logo.png", "mime_type": "image/png", "contains_facturx": false},
+    {"filename": "Pub.pdf", "mime_type": "application/pdf", "contains_facturx": false}
+  ]
+}

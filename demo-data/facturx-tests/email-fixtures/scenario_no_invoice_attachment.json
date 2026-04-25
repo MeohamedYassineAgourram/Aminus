@@ -1,0 +1,11 @@
+{
+  "scenario_id": "EMAIL-03-no-attachment",
+  "description": "Conversation email with no attachments",
+  "expected_behavior": {
+    "classification": "information_message",
+    "danger": false,
+    "create_invoice_records": 0,
+    "trigger_invoice_workflow": 0
+  },
+  "attachments": []
+}

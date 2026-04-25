@@ -1,0 +1,14 @@
+{
+  "scenario_id": "EMAIL-02-two-invoices",
+  "description": "Email carrying two separate invoice PDFs",
+  "expected_behavior": {
+    "classification": "multiple_invoices_detected",
+    "danger": false,
+    "invoices_to_create": 2,
+    "workflows_to_trigger": 2
+  },
+  "attachments": [
+    {"filename": "Invoice_A.pdf", "mime_type": "application/pdf", "contains_facturx": true, "linked_fixture": "invoices/TC-REC-01_po_match_500.xml"},
+    {"filename": "Invoice_B.pdf", "mime_type": "application/pdf", "contains_facturx": true, "linked_fixture": "invoices/TC-REC-03_amount_discrepancy_600.xml"}
+  ]
+}
