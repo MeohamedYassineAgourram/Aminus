@@ -5,5 +5,5 @@ pydantic
 python-dotenv
 supabase
 google-genai
-mistralai
+anthropic
 psycopg[binary]

@@ -1,5 +1,6 @@
 import os
 from typing import Any, Dict, Optional
+import json
 
 from backend.core.supabase_client import get_supabase_client
 
@@ -8,13 +9,13 @@ def reconcile_with_erp(context: Dict[str, Any]) -> Dict[str, Any]:
     """
     Stage 2:
     - Use Supabase ERP tables as ground truth
-    - Optionally use Mistral Agent API to reason over matches / payment state
+    - Optionally use Claude API to reason over matches / payment state
 
     For hackathon/dev, this returns a deterministic stub when not configured.
     """
 
     supabase = get_supabase_client()
-    mistral_key = os.getenv("MISTRAL_API_KEY")
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
 
     # Minimal DB check (if configured)
     erp_hint: Optional[Dict[str, Any]] = None
@@ -31,32 +32,81 @@ def reconcile_with_erp(context: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as e:
             erp_hint = {"error": f"{type(e).__name__}: {e}"}
 
-    if not mistral_key:
+    if not anthropic_key:
         return {
             "status": "stub",
             "decision": "to_be_checked",
-            "reason": "MISTRAL_API_KEY not configured",
+            "reason": "ANTHROPIC_API_KEY not configured",
             "erp_hint": erp_hint,
         }
 
-    from mistralai import Mistral
+    from anthropic import Anthropic
 
-    client = Mistral(api_key=mistral_key)
+    client = Anthropic(api_key=anthropic_key)
     prompt = (
         "You are an accounting reconciliation agent.\n"
         "Given the invoice JSON, decide one of: not_yet_paid | already_paid | needs_review.\n"
-        "Return STRICT JSON: {decision, reason}.\n"
+        "Return STRICT JSON only: {\"decision\":\"...\",\"reason\":\"...\"}.\n"
         f"invoice={context}\n"
         f"erp_hint={erp_hint}\n"
     )
 
-    out = client.chat.complete(
-        model="mistral-large-latest",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.2,
+    models = []
+    configured_model = os.getenv("ANTHROPIC_MODEL", "").strip()
+    if configured_model:
+        models.append(configured_model)
+
+    try:
+        listed = client.models.list(limit=20)
+        listed_ids = [getattr(m, "id", "") for m in getattr(listed, "data", [])]
+        preferred = [m for m in listed_ids if "sonnet" in m]
+        models.extend(preferred or listed_ids)
+    except Exception:
+        pass
+
+    models.extend(
+        [
+            "claude-sonnet-4-20250514",
+            "claude-3-7-sonnet-20250219",
+            "claude-3-5-sonnet-20241022",
+        ]
     )
-    text = (out.choices[0].message.content or "").strip()
-    import json
+    # Preserve order while removing duplicates/empties.
+    deduped = []
+    for m in models:
+        if m and m not in deduped:
+            deduped.append(m)
+    models = deduped
+
+    text = ""
+    last_error: Optional[str] = None
+    for model_name in models:
+        try:
+            out = client.messages.create(
+                model=model_name,
+                max_tokens=400,
+                temperature=0.2,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text_chunks = []
+            for block in out.content:
+                block_text = getattr(block, "text", None)
+                if block_text:
+                    text_chunks.append(block_text)
+            text = "\n".join(text_chunks).strip()
+            if text:
+                break
+        except Exception as exc:
+            last_error = f"{type(exc).__name__}: {exc}"
+            continue
+
+    if not text:
+        return {
+            "status": "stub",
+            "decision": "to_be_checked",
+            "reason": f"Claude call failed ({last_error or 'unknown error'})",
+            "erp_hint": erp_hint,
+        }
 
     try:
         parsed = json.loads(text)
@@ -64,5 +114,14 @@ def reconcile_with_erp(context: Dict[str, Any]) -> Dict[str, Any]:
             return {"status": "ok", **parsed, "erp_hint": erp_hint}
         return {"status": "ok", "value": parsed, "erp_hint": erp_hint}
     except Exception:
+        # Graceful fallback when model wraps JSON in prose/markdown.
+        if "{" in text and "}" in text:
+            try:
+                json_blob = text[text.find("{") : text.rfind("}") + 1]
+                parsed = json.loads(json_blob)
+                if isinstance(parsed, dict):
+                    return {"status": "ok", **parsed, "erp_hint": erp_hint}
+            except Exception:
+                pass
         return {"status": "ok", "raw": text[:4000], "erp_hint": erp_hint}
 

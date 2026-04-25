@@ -22,26 +22,35 @@ export default function DragDropZone({ onFile, disabled }: Props) {
   );
 
   return (
-    <div
-      onDragOver={(e) => {
-        e.preventDefault();
-        if (!disabled) setIsOver(true);
-      }}
-      onDragLeave={() => setIsOver(false)}
-      onDrop={onDrop}
-      style={{
-        border: "2px dashed #bbb",
-        borderRadius: 12,
-        padding: 24,
-        background: isOver ? "#f2f2f2" : "#fafafa",
-        opacity: disabled ? 0.6 : 1,
-      }}
-    >
-      <div style={{ fontWeight: 700 }}>Drag & drop an invoice PDF</div>
-      <div style={{ color: "#666", marginTop: 6, fontSize: 13 }}>
-        It will be uploaded to the Python API for security + reconciliation screening.
+    <label className={`dropzone ${isOver ? "dropzone--over" : ""} ${disabled ? "dropzone--disabled" : ""}`}>
+      <input
+        type="file"
+        accept="application/pdf"
+        disabled={disabled}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) onFile(file);
+          e.currentTarget.value = "";
+        }}
+        className="dropzone__input"
+      />
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          if (!disabled) setIsOver(true);
+        }}
+        onDragLeave={() => setIsOver(false)}
+        onDrop={onDrop}
+        className="dropzone__surface"
+      >
+        <div className="dropzone__icon">PDF</div>
+        <div className="dropzone__title">Drag & drop invoice PDF</div>
+        <div className="dropzone__subtitle">
+          Stage 1: XML vs Vision security check, then Stage 2 reconciliation.
+        </div>
+        <div className="dropzone__cta">{disabled ? "Processing..." : "or click to choose a file"}</div>
       </div>
-    </div>
+    </label>
   );
 }
 

@@ -55,23 +55,30 @@ async def screen_invoice(file: UploadFile = File(...)) -> Dict[str, Any]:
     reconciliation = reconcile_with_erp(security.facturx or {})
     final_status = "checked" if reconciliation.get("decision") == "already_paid" else "to_be_checked"
 
-    persist = store_invoice(
-        pdf_bytes,
-        metadata={
-            "status": final_status,
-            "filename": file.filename,
-            "security": {
-                "status": security.status,
-                "match": security.match,
-                "diffs": security.diffs,
+    try:
+        persist = store_invoice(
+            pdf_bytes,
+            metadata={
+                "status": final_status,
+                "filename": file.filename,
+                "security": {
+                    "status": security.status,
+                    "match": security.match,
+                    "diffs": security.diffs,
+                },
+                "reconciliation": reconciliation,
+                "extracted": {
+                    "facturx": security.facturx,
+                    "vision": security.vision,
+                },
             },
-            "reconciliation": reconciliation,
-            "extracted": {
-                "facturx": security.facturx,
-                "vision": security.vision,
-            },
-        },
-    )
+        )
+    except Exception as exc:
+        # Keep screening usable locally even if external persistence is unavailable.
+        persist = {
+            "ok": False,
+            "error": f"Persistence unavailable: {exc}",
+        }
 
     return {
         "status": final_status,
