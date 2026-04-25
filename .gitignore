@@ -1,0 +1,11 @@
+.DS_Store
+node_modules
+.next
+dist
+.env.local
+.env
+*.log
+__pycache__
+.venv
+.python-version
+
