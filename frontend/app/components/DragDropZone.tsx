@@ -85,11 +85,6 @@ export default function DragDropZone({ onFile, disabled }: Props) {
           {disabled ? "Processing…" : "PDF only · up to 25 MB each"}
         </div>
 
-        <div className="dropzone__chips">
-          <span className="dropzone__chip">OCR ENABLED</span>
-          <span className="dropzone__chip">AUTO-CLASSIFY</span>
-          <span className="dropzone__chip">SOC 2</span>
-        </div>
       </div>
     </label>
   );
