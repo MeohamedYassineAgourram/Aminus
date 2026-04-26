@@ -430,6 +430,8 @@ export default function Dashboard() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [selectedId, setSelectedId] = useState<string>("INV-2048");
   const [filter, setFilter] = useState<FilterType>("all");
+  const [search, setSearch] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [liveSteps, setLiveSteps] = useState<AuditStep[]>([]);
@@ -617,10 +619,19 @@ export default function Dashboard() {
   );
 
   // ── Derived state ──────────────────────────────────────────
-  const filtered = useMemo(
-    () => (filter === "all" ? invoices : invoices.filter((i) => i.status === filter)),
-    [invoices, filter],
-  );
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return invoices.filter((i) => {
+      const matchesStatus = filter === "all" || i.status === filter;
+      const matchesSearch =
+        !q ||
+        i.id.toLowerCase().includes(q) ||
+        i.vendor.toLowerCase().includes(q) ||
+        i.subId.toLowerCase().includes(q) ||
+        STATUS_LABELS[i.status].toLowerCase().includes(q);
+      return matchesStatus && matchesSearch;
+    });
+  }, [invoices, filter, search]);
 
   const counts = useMemo(() => ({
     all: invoices.length,
@@ -646,38 +657,43 @@ export default function Dashboard() {
           </div>
           <div className="nav__brandText">
             <span className="nav__brandName">Aminus</span>
-            <span className="nav__brandSub">CFO Suite</span>
           </div>
         </a>
 
         <div className="nav__tabs">
-          <button className="nav__tab nav__tab--active">
+          <button
+            className="nav__tab nav__tab--active"
+            onClick={() => { setFilter("all"); setSearch(""); }}
+            title="Reset to full invoice queue"
+          >
             <Icon.Dashboard /> Dashboard
-          </button>
-          <button className="nav__tab">
-            <Icon.File /> Invoices
-          </button>
-          <button className="nav__tab">
-            <Icon.CreditCard /> Payments
-          </button>
-          <button className="nav__tab">
-            <Icon.Settings /> Settings
           </button>
         </div>
 
         <div className="nav__right">
           <div className="nav__search">
             <Icon.Search />
-            <span>Search invoices, vendors…</span>
-            <span className="nav__searchKbd">⌘K</span>
+            <input
+              className="nav__searchInput"
+              placeholder="Search invoices, vendors…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search && (
+              <button
+                className="nav__searchClear"
+                onClick={() => setSearch("")}
+                aria-label="Clear search"
+              >
+                ×
+              </button>
+            )}
           </div>
-          <button className="nav__iconBtn"><Icon.Help /></button>
-          <button className="nav__iconBtn"><Icon.Bell /></button>
           <div className="nav__user">
-            <div className="nav__avatar">EM</div>
+            <div className="nav__avatar">JK</div>
             <div className="nav__userInfo">
-              <span className="nav__userName">Elena Marsh</span>
-              <span className="nav__userRole">CFO · Acme Corp</span>
+              <span className="nav__userName">Jiwon Kim</span>
+              <span className="nav__userRole">CFO · Kim&apos;s Group</span>
             </div>
             <Icon.ChevronDown />
           </div>
@@ -760,18 +776,10 @@ export default function Dashboard() {
                 <div className="queuePanel__titleGroup">
                   <h2 className="queuePanel__title">Invoice Queue</h2>
                   <p className="queuePanel__subtitle">
-                    {invoices.length} of {invoices.length} invoices · auto-refreshed 2s ago
+                    {filtered.length} of {invoices.length} invoices · auto-refreshed 2s ago
                   </p>
                 </div>
-                <div className="queuePanel__actions">
-                  <div className="queuePanel__searchBox">
-                    <Icon.Search />
-                    <span>Search vendor, ID, ref…</span>
-                  </div>
-                  <button className="queuePanel__filterBtn">
-                    <Icon.Filter /> Filters
-                  </button>
-                </div>
+                <div className="queuePanel__actions"></div>
               </div>
 
               <div className="filterTabs">
@@ -882,6 +890,55 @@ export default function Dashboard() {
           />
         </div>
       </main>
+
+      {/* Settings panel */}
+      {settingsOpen && (
+        <div className="settingsOverlay" onClick={() => setSettingsOpen(false)}>
+          <div className="settingsPanel" onClick={(e) => e.stopPropagation()}>
+            <div className="settingsPanel__header">
+              <h2 className="settingsPanel__title">Settings</h2>
+              <button className="settingsPanel__close" onClick={() => setSettingsOpen(false)}>×</button>
+            </div>
+            <div className="settingsPanel__body">
+              <div className="settingsSection">
+                <h3 className="settingsSection__title">Backend Connection</h3>
+                <div className="settingsField">
+                  <label className="settingsField__label">API Endpoint</label>
+                  <div className="settingsField__value">{backendUrl}</div>
+                </div>
+                <div className="settingsField">
+                  <label className="settingsField__label">Status</label>
+                  <div className="settingsField__value" style={{ color: "#16a34a", fontWeight: 600 }}>● Connected</div>
+                </div>
+              </div>
+              <div className="settingsSection">
+                <h3 className="settingsSection__title">Screening Pipeline</h3>
+                <div className="settingsField">
+                  <label className="settingsField__label">Stage 1 — Security Check</label>
+                  <div className="settingsField__value">Factur-X XML vs Claude Vision</div>
+                </div>
+                <div className="settingsField">
+                  <label className="settingsField__label">Stage 2 — Reconciliation</label>
+                  <div className="settingsField__value">Claude Agent + Supabase ERP</div>
+                </div>
+              </div>
+              <div className="settingsSection">
+                <h3 className="settingsSection__title">Account</h3>
+                <div className="settingsField">
+                  <label className="settingsField__label">User</label>
+                  <div className="settingsField__value">Elena Marsh — CFO · Acme Corp</div>
+                </div>
+                <div className="settingsField">
+                  <label className="settingsField__label">Note</label>
+                  <div className="settingsField__value" style={{ color: "#94a3b8", fontSize: 12 }}>
+                    User identity is provided by your company&apos;s auth system at integration time.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
