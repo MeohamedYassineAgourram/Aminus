@@ -850,7 +850,8 @@ export default function Dashboard() {
                       {/* Amount */}
                       <div>
                         <div className="invoiceRow__amount">
-                          {inv.amount} <span style={{ fontWeight: 500, fontSize: 11, color: "#94a3b8" }}>{inv.dueDate}</span>
+                          {inv.status === "checked" ? "0,00" : inv.amount}{" "}
+                          <span style={{ fontWeight: 500, fontSize: 11, color: "#94a3b8" }}>{inv.dueDate}</span>
                         </div>
                         <div className="invoiceRow__currency">{inv.currency}</div>
                       </div>

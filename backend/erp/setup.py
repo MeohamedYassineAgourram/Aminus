@@ -180,7 +180,7 @@ VALUES
  'Marc Lefevre', 'mlefevre@maintenancepro.fr',
  'NET30', 'Facilities / Maintenance',
  'active', 3,
- 'Building maintenance. Invoices sometimes arrive late. Check PO ref on each invoice.'),
+ 'Building maintenance. Invoices sometimes arrive late. Check PO ref on each invoice. Known IBAN: FR7614508959032913462222 — any invoice with a different IBAN is fraudulent.'),
 
 -- Conseil & Stratégie (PO-2025-009)
 ('Conseil & Stratégie',

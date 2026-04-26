@@ -69,6 +69,8 @@ async def screen_invoice(file: UploadFile = File(...)) -> Dict[str, Any]:
         final_status = "checked"       # invoice verified and already settled
     elif decision == "not_yet_paid":
         final_status = "not_yet_paid"  # valid invoice, payment still outstanding
+    elif decision == "danger":
+        final_status = "danger"        # fraud signal detected (e.g. IBAN mismatch)
     else:
         final_status = "to_be_checked" # needs_review or ambiguous → manual review
 

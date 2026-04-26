@@ -1,4 +1,5 @@
 import base64
+import io
 import json
 import os
 import re
@@ -6,7 +7,8 @@ from typing import Any, Dict, Optional
 
 
 _PROMPT = (
-    "You are reading an invoice PDF. Extract the following fields exactly as they appear.\n"
+    "You are reading a rendered image of an invoice page. Extract the following fields "
+    "exactly as they appear visually on the page.\n"
     "Return ONLY a valid JSON object — no markdown, no prose, no explanation.\n\n"
     "Fields to extract:\n"
     "  supplier_name   — company name of the invoice issuer\n"
@@ -19,6 +21,23 @@ _PROMPT = (
     'Example: {"supplier_name":"Acme SAS","invoice_number":"INV-001",'
     '"invoice_date":"2024-11-15","currency":"EUR","total_amount":12360.00,"iban":"FR76..."}'
 )
+
+
+def _pdf_to_image_b64(pdf_bytes: bytes) -> Optional[str]:
+    """Rasterize the first page of the PDF to a PNG and return base64. Returns None on failure."""
+    try:
+        import fitz  # PyMuPDF
+
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        page = doc[0]
+        # 2× zoom gives ~150 dpi — enough for Claude to read text clearly
+        mat = fitz.Matrix(2, 2)
+        pix = page.get_pixmap(matrix=mat, alpha=False)
+        png_bytes = pix.tobytes("png")
+        doc.close()
+        return base64.standard_b64encode(png_bytes).decode("utf-8")
+    except Exception:
+        return None
 
 
 def extract_vision_json(pdf_bytes: bytes) -> Optional[Dict[str, Any]]:
@@ -76,7 +95,10 @@ def _extract_with_claude(pdf_bytes: bytes, api_key: str) -> Optional[Dict[str, A
         from anthropic import Anthropic
 
         client = Anthropic(api_key=api_key)
-        pdf_b64 = base64.standard_b64encode(pdf_bytes).decode("utf-8")
+
+        # Rasterize to image so Claude reads only the visual rendering,
+        # not the embedded XML/text layer (which would defeat fraud detection).
+        img_b64 = _pdf_to_image_b64(pdf_bytes)
 
         models = ["claude-sonnet-4-6", "claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001"]
         configured = os.getenv("ANTHROPIC_MODEL", "").strip()
@@ -85,25 +107,37 @@ def _extract_with_claude(pdf_bytes: bytes, api_key: str) -> Optional[Dict[str, A
 
         for model_id in models:
             try:
+                if img_b64:
+                    content = [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/png",
+                                "data": img_b64,
+                            },
+                        },
+                        {"type": "text", "text": _PROMPT},
+                    ]
+                else:
+                    # Fallback: send as PDF document if rasterization failed
+                    pdf_b64 = base64.standard_b64encode(pdf_bytes).decode("utf-8")
+                    content = [
+                        {
+                            "type": "document",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "application/pdf",
+                                "data": pdf_b64,
+                            },
+                        },
+                        {"type": "text", "text": _PROMPT},
+                    ]
+
                 response = client.messages.create(
                     model=model_id,
                     max_tokens=512,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "document",
-                                    "source": {
-                                        "type": "base64",
-                                        "media_type": "application/pdf",
-                                        "data": pdf_b64,
-                                    },
-                                },
-                                {"type": "text", "text": _PROMPT},
-                            ],
-                        }
-                    ],
+                    messages=[{"role": "user", "content": content}],
                 )
                 text = "".join(
                     getattr(b, "text", "") for b in response.content
