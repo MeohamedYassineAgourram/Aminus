@@ -258,6 +258,13 @@ const Icon = {
       <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
     </svg>
   ),
+  Wallet: () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 12V8H6a2 2 0 0 1 0-4h14v4" />
+      <path d="M4 6v12a2 2 0 0 0 2 2h14v-4" />
+      <circle cx="17" cy="12" r="1" fill="currentColor" />
+    </svg>
+  ),
   Filter: () => (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
@@ -641,6 +648,27 @@ export default function Dashboard() {
     checked: invoices.filter((i) => i.status === "checked").length,
   }), [invoices]);
 
+  const totalDue = useMemo(() => {
+    const sum = invoices
+      .filter((i) => i.status === "not_yet_paid" || i.status === "to_be_checked")
+      .reduce((acc, i) => {
+        // Strip currency symbols, then detect format:
+        // fr-FR uses space/NNBSP as thousands sep + comma as decimal → "6 600,00 €"
+        // en-US uses comma as thousands sep + period as decimal → "$6,600.00"
+        const stripped = i.amount.replace(/[€$£¥]/g, "").trim();
+        let n: number;
+        if (/[\d\s  ]+,\d{1,2}$/.test(stripped)) {
+          // French format: remove all spaces, swap comma→period
+          n = parseFloat(stripped.replace(/[\s  ]/g, "").replace(",", "."));
+        } else {
+          // US/UK format: remove thousand commas
+          n = parseFloat(stripped.replace(/,/g, ""));
+        }
+        return acc + (isNaN(n) ? 0 : n);
+      }, 0);
+    return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(sum);
+  }, [invoices]);
+
   const selectedInvoice = useMemo(
     () => (selectedId === LIVE_ID ? null : invoices.find((i) => i.id === selectedId) ?? null),
     [invoices, selectedId],
@@ -704,21 +732,36 @@ export default function Dashboard() {
       <main className="page">
         {/* Page header */}
         <div className="pageHeader">
-          <div>
-            <p className="pageHeader__eyebrow">Accounts Payable · Q2 2025</p>
+          <div className="pageHeader__left">
             <h1 className="pageHeader__title">Invoice Intelligence</h1>
+            <div className="pageHeader__pipeline">
+              <span className="pageHeader__pipeStep">OCR Extraction</span>
+              <span className="pageHeader__pipeDot" />
+              <span className="pageHeader__pipeStep">Factur-X Verify</span>
+              <span className="pageHeader__pipeDot" />
+              <span className="pageHeader__pipeStep">AI Vision Check</span>
+              <span className="pageHeader__pipeDot" />
+              <span className="pageHeader__pipeStep">ERP Reconciliation</span>
+              <span className="pageHeader__pipeDot" />
+              <span className="pageHeader__pipeStep">Fraud Decision</span>
+            </div>
           </div>
           <div className="pageHeader__right">
             <p>
-              Drop invoices below — agents will extract, match, and route them.
-              Every decision is fully auditable.
+              Drop invoices below — agents extract, verify against Factur-X XML,
+              cross-check with Claude Vision, and reconcile against your ERP.
+              Every decision is signed and auditable.
             </p>
+            <div className="pageHeader__statusRow">
+              <span className="pageHeader__statusDot" />
+              <span className="pageHeader__statusText">Pipeline online</span>
+            </div>
           </div>
         </div>
 
         {/* Stats */}
         <div className="statsGrid">
-          <div className="statCard">
+          <div className="statCard statCard--blue">
             <div className="statCard__top">
               <div className="statCard__icon"><Icon.Dollar /></div>
             </div>
@@ -727,37 +770,72 @@ export default function Dashboard() {
               <div className="statCard__value">{counts.all}</div>
             </div>
           </div>
-          <div className="statCard">
+          <div className="statCard statCard--green">
             <div className="statCard__top">
               <div className="statCard__icon"><Icon.Check /></div>
             </div>
             <div>
-              <p className="statCard__label">Checked</p>
+              <p className="statCard__label">Approved &amp; Clear</p>
               <div className="statCard__value">{counts.checked}</div>
             </div>
           </div>
-          <div className="statCard">
+          <div className="statCard statCard--red">
             <div className="statCard__top">
               <div className="statCard__icon"><Icon.AlertTriangle /></div>
             </div>
             <div>
-              <p className="statCard__label">Flagged for Review</p>
+              <p className="statCard__label">Flagged — Fraud Risk</p>
               <div className="statCard__value">{counts.danger}</div>
             </div>
           </div>
-          <div className="statCard">
+          <div className="statCard statCard--amber">
             <div className="statCard__top">
               <div className="statCard__icon"><Icon.Clock /></div>
             </div>
             <div>
-              <p className="statCard__label">Not Yet Paid</p>
+              <p className="statCard__label">Pending Payment</p>
               <div className="statCard__value">{counts.not_yet_paid}</div>
+            </div>
+          </div>
+          <div className="statCard statCard--violet">
+            <div className="statCard__top">
+              <div className="statCard__icon"><Icon.Wallet /></div>
+            </div>
+            <div>
+              <p className="statCard__label">Total Due Now</p>
+              <div className="statCard__value statCard__value--small">{totalDue}</div>
             </div>
           </div>
         </div>
 
         {/* Upload zone */}
         <div className="uploadZone">
+          <div className="uploadZone__pipeline">
+            <div className="uploadZone__pipeItem">
+              <div className="uploadZone__pipeIcon">📄</div>
+              <span className="uploadZone__pipeLabel">Ingest</span>
+            </div>
+            <div className="uploadZone__pipeArrow" />
+            <div className="uploadZone__pipeItem">
+              <div className="uploadZone__pipeIcon">🔍</div>
+              <span className="uploadZone__pipeLabel">Verify</span>
+            </div>
+            <div className="uploadZone__pipeArrow" />
+            <div className="uploadZone__pipeItem">
+              <div className="uploadZone__pipeIcon">🤖</div>
+              <span className="uploadZone__pipeLabel">AI Check</span>
+            </div>
+            <div className="uploadZone__pipeArrow" />
+            <div className="uploadZone__pipeItem">
+              <div className="uploadZone__pipeIcon">🏦</div>
+              <span className="uploadZone__pipeLabel">ERP Match</span>
+            </div>
+            <div className="uploadZone__pipeArrow" />
+            <div className="uploadZone__pipeItem">
+              <div className="uploadZone__pipeIcon">✅</div>
+              <span className="uploadZone__pipeLabel">Decision</span>
+            </div>
+          </div>
           <DragDropZone onFile={upload} disabled={busy} />
           {error && (
             <div className="errorBanner">
