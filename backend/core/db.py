@@ -26,14 +26,18 @@ def insert_invoice_row(
     if not url:
         return {"status": "stub", "reason": "DATABASE_URL not configured"}
 
-    # Pull structured fields out of extracted data when available.
-    fx = (extracted or {}).get("facturx") or {}
-    vendor_name    = fx.get("supplier_name")
-    invoice_number = fx.get("invoice_number")
-    invoice_date   = fx.get("invoice_date") or None
-    amount_raw     = fx.get("total_amount")
-    currency       = fx.get("currency") or "EUR"
-    iban           = fx.get("iban")
+    # Pull structured fields — XML (facturx) is preferred, vision is the fallback.
+    ext = extracted or {}
+    fx  = ext.get("facturx") or {}
+    vis = ext.get("vision")  or {}
+    src = fx if fx.get("supplier_name") or fx.get("total_amount") else vis
+
+    vendor_name    = src.get("supplier_name")
+    invoice_number = src.get("invoice_number")
+    invoice_date   = src.get("invoice_date") or None
+    amount_raw     = src.get("total_amount")
+    currency       = src.get("currency") or "EUR"
+    iban           = src.get("iban")
 
     # Coerce amount to numeric or None
     amount: Optional[float] = None
