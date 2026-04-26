@@ -7,3 +7,4 @@ supabase
 google-genai
 anthropic
 psycopg[binary]
+factur-x

@@ -57,8 +57,8 @@ async def screen_invoice(file: UploadFile = File(...)) -> Dict[str, Any]:
             },
         }
 
-    # Stage 2 — reconciliation against ERP purchase orders
-    reconciliation = reconcile_with_erp(security.facturx or {})
+    # Stage 2 — use best available structured data (XML preferred, else vision)
+    reconciliation = reconcile_with_erp(security.best or security.facturx or security.vision or {})
     decision = reconciliation.get("decision", "")
 
     if decision == "already_paid":
