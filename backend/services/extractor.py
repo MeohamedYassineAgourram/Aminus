@@ -36,8 +36,12 @@ def extract_facturx_json(pdf_bytes: bytes) -> Optional[Dict[str, Any]]:
         from facturx import get_facturx_xml_from_pdf  # type: ignore
 
         # The library returns (xml_bytes, xml_filename) or (False, False)
-        result = get_facturx_xml_from_pdf(io.BytesIO(pdf_bytes))
-        xml_bytes_raw, _ = result
+        result = get_facturx_xml_from_pdf(
+            io.BytesIO(pdf_bytes), check_xsd=False, check_schematron=False
+        )
+        # facturx ≥4.2 returns (filename, xml_bytes); older versions (xml_bytes, filename)
+        a, b = result
+        xml_bytes_raw = b if isinstance(b, (bytes, bytearray)) else (a if isinstance(a, (bytes, bytearray)) else None)
         if not xml_bytes_raw:
             return None  # PDF has no embedded Factur-X XML
 
@@ -98,7 +102,7 @@ def extract_facturx_json(pdf_bytes: bytes) -> Optional[Dict[str, Any]]:
         # ── IBAN ──────────────────────────────────────────────────────────
         iban = _text(
             root,
-            ".//ram:SellerSpecifiedTaxRegistration/ram:ID",  # fallback
+            ".//ram:CreditorFinancialAccount/ram:IBANID",
             ".//ram:PayeeSpecifiedCreditorFinancialAccount/ram:IBANID",
             ".//ram:SpecifiedCreditorFinancialAccount/ram:IBANID",
         )

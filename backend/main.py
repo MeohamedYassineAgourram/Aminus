@@ -45,6 +45,9 @@ async def screen_invoice(file: UploadFile = File(...)) -> Dict[str, Any]:
     # Stage 1 result:
     #   security.match == False + status "danger"  → XML vs visual mismatch → fraud signal
     #   security.status == "error"                 → extraction failed → needs manual review
+    # Best structured data available (used for display even on early return)
+    extracted = security.best or security.facturx or security.vision or {}
+
     if security.status != "ok" or not security.match:
         out_status = "danger" if security.status == "danger" else "to_be_checked"
         return {
@@ -55,10 +58,11 @@ async def screen_invoice(file: UploadFile = File(...)) -> Dict[str, Any]:
                 "match": security.match,
                 "diffs": security.diffs,
             },
+            "extracted": extracted,
         }
 
     # Stage 2 — use best available structured data (XML preferred, else vision)
-    reconciliation = reconcile_with_erp(security.best or security.facturx or security.vision or {})
+    reconciliation = reconcile_with_erp(extracted)
     decision = reconciliation.get("decision", "")
 
     if decision == "already_paid":
@@ -102,6 +106,7 @@ async def screen_invoice(file: UploadFile = File(...)) -> Dict[str, Any]:
             "diffs": security.diffs,
         },
         "reconciliation": reconciliation,
+        "extracted": extracted,
         "persistence": persist,
         "backend_public_url": os.getenv("BACKEND_PUBLIC_URL", "http://localhost:8000"),
         "filename": file.filename,

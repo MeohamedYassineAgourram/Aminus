@@ -2,75 +2,15 @@ import os
 from typing import Any, Dict, List, Optional
 import json
 
-from backend.core.db import get_database_url
-
-
-def _fetch_erp_rows(vendor_name: Optional[str], amount: Optional[float]) -> List[Dict]:
-    """
-    Query erp_purchase_orders directly via DATABASE_URL.
-    Returns relevant open/partial POs, filtered by vendor name when possible.
-    """
-    url = get_database_url()
-    if not url:
-        return []
-
-    try:
-        import psycopg
-        with psycopg.connect(url) as conn:
-            with conn.cursor() as cur:
-                if vendor_name:
-                    cur.execute(
-                        """
-                        SELECT po_number, vendor_name, vendor_iban, amount, currency,
-                               status, invoice_ref, due_date, description
-                        FROM erp_purchase_orders
-                        WHERE status IN ('open', 'partially_paid')
-                          AND lower(vendor_name) LIKE lower(%s)
-                        ORDER BY due_date
-                        LIMIT 10
-                        """,
-                        (f"%{vendor_name}%",),
-                    )
-                    rows = cur.fetchall()
-                    if not rows:
-                        # Fallback: return all open POs so agent has context
-                        cur.execute(
-                            """
-                            SELECT po_number, vendor_name, vendor_iban, amount, currency,
-                                   status, invoice_ref, due_date, description
-                            FROM erp_purchase_orders
-                            WHERE status IN ('open', 'partially_paid')
-                            ORDER BY due_date
-                            LIMIT 10
-                            """
-                        )
-                        rows = cur.fetchall()
-                else:
-                    cur.execute(
-                        """
-                        SELECT po_number, vendor_name, vendor_iban, amount, currency,
-                               status, invoice_ref, due_date, description
-                        FROM erp_purchase_orders
-                        WHERE status IN ('open', 'partially_paid')
-                        ORDER BY due_date
-                        LIMIT 10
-                        """
-                    )
-                    rows = cur.fetchall()
-
-                cols = ["po_number", "vendor_name", "vendor_iban", "amount", "currency",
-                        "status", "invoice_ref", "due_date", "description"]
-                return [dict(zip(cols, (str(v) if v is not None else None for v in row))) for row in rows]
-    except Exception as e:
-        return [{"error": f"{type(e).__name__}: {e}"}]
-
 
 def reconcile_with_erp(context: Dict[str, Any]) -> Dict[str, Any]:
     """
     Stage 2 — ERP reconciliation with Claude.
-    Queries erp_purchase_orders for matching POs, then asks Claude to decide:
-      not_yet_paid | already_paid | needs_review
+    Fetches vendor profile, POs, payment history, and email threads,
+    then asks Claude to decide: not_yet_paid | already_paid | needs_review
     """
+    from backend.erp.context import get_erp_context
+
     anthropic_key = os.getenv("ANTHROPIC_API_KEY")
 
     vendor_name = context.get("supplier_name")
@@ -82,14 +22,14 @@ def reconcile_with_erp(context: Dict[str, Any]) -> Dict[str, Any]:
     except (ValueError, TypeError):
         pass
 
-    erp_rows = _fetch_erp_rows(vendor_name, amount)
+    erp = get_erp_context(vendor_name, amount)
 
     if not anthropic_key:
         return {
             "status": "stub",
             "decision": "to_be_checked",
             "reason": "ANTHROPIC_API_KEY not configured",
-            "erp_rows": erp_rows,
+            "erp_context": erp,
         }
 
     from anthropic import Anthropic
@@ -97,23 +37,31 @@ def reconcile_with_erp(context: Dict[str, Any]) -> Dict[str, Any]:
 
     prompt = (
         "You are an accounts-payable reconciliation agent for a French company.\n"
-        "Your job: match the invoice against the company's purchase orders and decide the payment status.\n\n"
-        "IMPORTANT RULES:\n"
+        "Your job: match the incoming invoice against the company's ERP data and decide the payment status.\n\n"
+        "MATCHING RULES:\n"
         "  1. PO amounts in the ERP are always HT (before tax, excluding TVA).\n"
         "     Invoice amounts are TTC (including TVA, typically 20% in France).\n"
-        "     A difference of ~20% between the invoice TTC and the PO HT is NORMAL and expected.\n"
-        "     Example: PO HT = 10,300 EUR → Invoice TTC = 12,360 EUR (+20% TVA) → this IS a match.\n"
-        "  2. Match primarily on: vendor name (fuzzy OK) + IBAN + approximate amount (within TVA tolerance).\n"
-        "  3. A partial IBAN match or slight name variation is acceptable.\n\n"
-        "Decisions:\n"
-        "  - 'already_paid'  : invoice matches a PO with status 'paid' — this is a duplicate payment attempt\n"
-        "  - 'not_yet_paid'  : invoice matches an open or partially-paid PO — legitimate, payment is outstanding\n"
-        "  - 'needs_review'  : no matching PO found at all, or critical data (vendor, amount) is missing/inconsistent\n\n"
+        "     A difference of ~20% between invoice TTC and PO HT is NORMAL and expected.\n"
+        "     Example: PO HT = 10,300 EUR → Invoice TTC = 12,360 EUR (+20% TVA) → confirmed match.\n"
+        "  2. Match on: vendor name (fuzzy OK) + IBAN + amount (within TVA tolerance ±25%).\n"
+        "  3. A partial IBAN match or slight name variation is acceptable.\n"
+        "  4. Check payment_history — if the same invoice_ref already appears there, the invoice is a duplicate.\n"
+        "  5. Use email_threads for extra context: payment confirmations, duplicate warnings, disputes.\n"
+        "  6. Check vendor_profile trust_score and notes for known fraud patterns.\n\n"
+        "DECISION RULES (strict):\n"
+        "  - 'already_paid'  : PO status is 'paid' OR the invoice_ref appears in payment_history → duplicate, do NOT pay again.\n"
+        "  - 'not_yet_paid'  : vendor name + IBAN + amount match an open or partially-paid PO → legitimate outstanding invoice.\n"
+        "                      Use 'not_yet_paid' even if the invoice does not explicitly list the PO number.\n"
+        "                      This is the EXPECTED outcome for a valid new invoice from a known vendor.\n"
+        "  - 'needs_review'  : use ONLY when there is truly NO plausible PO match (completely different vendor,\n"
+        "                      wrong IBAN, amount off by >25% beyond TVA, or critical data entirely missing).\n"
+        "                      Do NOT use 'needs_review' if a reasonable match exists.\n\n"
         "INVOICE:\n"
         f"{json.dumps(context, ensure_ascii=False, indent=2)}\n\n"
-        "PURCHASE ORDERS FROM ERP:\n"
-        f"{json.dumps(erp_rows, ensure_ascii=False, indent=2)}\n\n"
-        "Return ONLY valid JSON — no markdown, no prose:\n"
+        "ERP CONTEXT:\n"
+        f"{json.dumps(erp, ensure_ascii=False, indent=2)}\n\n"
+        "IMPORTANT: Output EXACTLY one JSON object and nothing else — no prose, no markdown, no self-correction.\n"
+        "If you are unsure, still output a single JSON with your best decision.\n"
         "{\"decision\": \"...\", \"reason\": \"...\", \"matched_po\": \"PO-number or null\"}"
     )
 
@@ -126,7 +74,6 @@ def reconcile_with_erp(context: Dict[str, Any]) -> Dict[str, Any]:
         "claude-sonnet-4-5-20250929",
         "claude-haiku-4-5-20251001",
     ])
-    # Deduplicate while preserving order
     seen: set = set()
     deduped = [m for m in models if m and not (m in seen or seen.add(m))]  # type: ignore[func-returns-value]
 
@@ -136,12 +83,10 @@ def reconcile_with_erp(context: Dict[str, Any]) -> Dict[str, Any]:
         try:
             out = client.messages.create(
                 model=model_id,
-                max_tokens=400,
+                max_tokens=600,
                 messages=[{"role": "user", "content": prompt}],
             )
-            text = "".join(
-                getattr(b, "text", "") for b in out.content
-            ).strip()
+            text = "".join(getattr(b, "text", "") for b in out.content).strip()
             if text:
                 break
         except Exception as exc:
@@ -152,22 +97,39 @@ def reconcile_with_erp(context: Dict[str, Any]) -> Dict[str, Any]:
             "status": "stub",
             "decision": "to_be_checked",
             "reason": f"Claude call failed ({last_error or 'unknown'})",
-            "erp_rows": erp_rows,
+            "erp_context": erp,
         }
 
-    # Parse JSON response
+    # Try direct parse first
     try:
         parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return {"status": "ok", **parsed, "erp_context": erp}
+        return {"status": "ok", "value": parsed, "erp_context": erp}
     except Exception:
-        # Strip markdown fences if model wrapped the JSON
-        if "{" in text and "}" in text:
-            try:
-                parsed = json.loads(text[text.find("{"):text.rfind("}") + 1])
-            except Exception:
-                return {"status": "ok", "raw": text[:2000], "erp_rows": erp_rows}
-        else:
-            return {"status": "ok", "raw": text[:2000], "erp_rows": erp_rows}
+        pass
 
-    if isinstance(parsed, dict):
-        return {"status": "ok", **parsed, "erp_rows": erp_rows}
-    return {"status": "ok", "value": parsed, "erp_rows": erp_rows}
+    # Claude sometimes outputs prose + multiple JSON blocks (self-correction).
+    # Scan all {...} spans and return the LAST one with a "decision" key.
+    import re as _re
+    candidates = list(_re.finditer(r'\{', text))
+    for m in reversed(candidates):
+        start = m.start()
+        # find matching closing brace
+        depth = 0
+        for i, ch in enumerate(text[start:]):
+            if ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    span = text[start: start + i + 1]
+                    try:
+                        parsed = json.loads(span)
+                        if isinstance(parsed, dict) and "decision" in parsed:
+                            return {"status": "ok", **parsed, "erp_context": erp}
+                    except Exception:
+                        pass
+                    break
+
+    return {"status": "ok", "raw": text[:2000], "erp_context": erp}

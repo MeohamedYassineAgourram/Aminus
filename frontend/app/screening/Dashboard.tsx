@@ -472,7 +472,7 @@ export default function Dashboard() {
 
       pushStep({
         id: "l2", title: "Security check running",
-        description: "Extracting Factur-X XML and invoking Gemini 1.5 Pro for visual comparison…",
+        description: "Extracting Factur-X XML and invoking Claude for visual comparison…",
         timestamp: nowTime(), durationMs: 0, tag: "EXTRACT", variant: "default",
       });
 
@@ -553,8 +553,9 @@ export default function Dashboard() {
         // Derive confidence from result
         const confidence = data.security?.match
           ? reconciled === "already_paid" ? 96
+            : reconciled === "not_yet_paid" ? 85
             : reconciled === "needs_review" ? 74
-            : 85
+            : 82
           : 38;
 
         // Next invoice ID
@@ -564,17 +565,33 @@ export default function Dashboard() {
         }, 2048);
         const newId = `INV-${maxId + 1}`;
 
+        const supplierName: string = data.extracted?.supplier_name ?? file.name.replace(/\.pdf$/i, "");
+        const initials = supplierName
+          .split(/\s+/)
+          .filter(Boolean)
+          .slice(0, 2)
+          .map((w: string) => w[0].toUpperCase())
+          .join("");
+
+        const rawAmount: number | null = data.extracted?.total_amount ?? null;
+        const currency: string = data.extracted?.currency ?? "EUR";
+        const amountDisplay = rawAmount != null
+          ? new Intl.NumberFormat("fr-FR", { style: "currency", currency }).format(rawAmount)
+          : "—";
+
+        const invoiceNumber: string = data.extracted?.invoice_number ?? file.name.replace(/\.pdf$/i, "").slice(0, 14).toUpperCase().replace(/\s+/g, "-");
+
         const newInvoice: Invoice = {
           id: newId,
-          subId: file.name.replace(/\.pdf$/i, "").slice(0, 14).toUpperCase().replace(/\s+/g, "-"),
-          vendor: file.name.replace(/\.pdf$/i, ""),
-          vendorInitials: file.name.slice(0, 2).toUpperCase(),
+          subId: invoiceNumber,
+          vendor: supplierName,
+          vendorInitials: initials || file.name.slice(0, 2).toUpperCase(),
           vendorColor: finalStatus === "danger" ? "#dc2626" : finalStatus === "checked" ? "#16a34a" : "#2563eb",
           receivedDate: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" }),
           status: finalStatus,
-          amount: "—",
-          currency: "USD",
-          dueDate: "—",
+          amount: amountDisplay,
+          currency,
+          dueDate: data.extracted?.invoice_date ?? "—",
           confidence,
           auditSteps: [...steps],
         };
